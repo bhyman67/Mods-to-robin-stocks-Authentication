@@ -224,33 +224,44 @@ def _validate_sherrif_id(device_token:str, workflow_id:str,mfa_code:str):
         inquiries_url = f"https://api.robinhood.com/pathfinder/inquiries/{data['id']}/user_view/"
         res = request_get(inquiries_url)
         challenge_id=res["context"]["sheriff_challenge"]["id"] # used to be type_context
-        challenge_url = f"https://api.robinhood.com/push/{challenge_id}/get_prompts_status/" # changed this endpoint
-        challenge_payload = {
-            'response': mfa_code
-        }
-        challenge_response = request_get(url=challenge_url)
-        # put the while loop here
-        # ***************************   NEW   ************************************
-        start_time = time.time()
-        while time.time() - start_time < 120: # 2 minutes
+        
+        # Need a conditional here for if the type is sms
+        if res["context"]["sheriff_challenge"]["type"] == "sms":
+            print("SMS code sent to your phone")
+            challenge_url = f"https://api.robinhood.com/challenge/{challenge_id}/respond/"
+            # prompt user for sms code
+            sms_code = input("Please enter the SMS code: ")
+            challenge_response = request_post(url=challenge_url, payload={"response":sms_code})
+            request_post(inquiries_url, payload={"sequence":0,"user_input":{"status":"continue"}},json=True)
+            return
+        else:
+            challenge_url = f"https://api.robinhood.com/push/{challenge_id}/get_prompts_status/" # changed this endpoint
+            challenge_payload = {
+                'response': mfa_code
+            }
+            challenge_response = request_get(url=challenge_url)
+            # put the while loop here
+            # ***************************   NEW   ************************************
+            start_time = time.time()
+            while time.time() - start_time < 120: # 2 minutes
 
-            time.sleep(5)
-            if challenge_response["challenge_status"] == "validated":
-                inquiries_payload = {"sequence":0,"user_input":{"status":"continue"}}
-                inquiries_response = request_post(url=inquiries_url, payload=inquiries_payload,json=True )
-                if inquiries_response["type_context"]["result"] == "workflow_status_approved":
-                    return
+                time.sleep(5)
+                if challenge_response["challenge_status"] == "validated":
+                    inquiries_payload = {"sequence":0,"user_input":{"status":"continue"}}
+                    inquiries_response = request_post(url=inquiries_url, payload=inquiries_payload,json=True )
+                    if inquiries_response["type_context"]["result"] == "workflow_status_approved":
+                        return
+                    else:
+                        raise Exception("workflow status not approved")    
+                #else:
+                    #raise Exception("Challenge not validated")
                 else:
-                    raise Exception("workflow status not approved")    
-            #else:
-                #raise Exception("Challenge not validated")
-            else:
-                challenge_response = request_get(url=challenge_url) 
-                print("Waiting for challenge to be validated")
-                print(time.time() - start_time)
+                    challenge_response = request_get(url=challenge_url) 
+                    print("Waiting for challenge to be validated")
+                    print(time.time() - start_time)
 
-        raise Exception("Login confirmation timed out. Please try again.")
-        # *************************************************************************
+            raise Exception("Login confirmation timed out. Please try again.")
+            # *************************************************************************
 
     raise Exception("Id not returned in user-machine call")
 
